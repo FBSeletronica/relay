@@ -1,4 +1,4 @@
-version: 1.0.0
+version: 1.0.1
 description: Relay control component for ESP32.
 url: https://github.com/FBSeletronica/relay
 repository: https://github.com/FBSeletronica/relay

@@ -1,4 +1,4 @@
-# My Relay Component
+# Relay
 
 This component is designed to provide an abstraction layer for controlling relays on ESP32-based systems using ESP-IDF. It includes flexible functions to manage Normally Open (NO) and Normally Closed (NC) relays, time-based control, and automatic scheduling of relay operations.
 
