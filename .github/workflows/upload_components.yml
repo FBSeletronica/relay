@@ -14,7 +14,6 @@ jobs:
       - name: Upload components to component service
         uses: espressif/upload-components-ci-action@v1
         with:
-          name: "Relay"
-          version: ${{ github.ref_name }}
+          name: "relay"
           namespace: "fbseletronica"
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
