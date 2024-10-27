@@ -1,0 +1,5 @@
+version: "1.0.0"
+description: "Relay control component for ESP32."
+dependencies:
+  idf : ">=5.0.0"
+license: "Apache-2.0"                 
