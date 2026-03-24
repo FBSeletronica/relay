@@ -17,199 +17,237 @@
 
 static const char *TAG = "Relay";
 
-/**
- * @brief Callback function to automatically turn off the relay after a delay.
- * 
- * This function is called by the timer to turn off the relay automatically
- * when a timed operation is completed.
- * 
- * @param arg Pointer to the relay structure.
- */
-static void relay_auto_turn_off_callback(void *arg) {
-    Relay *relay = (Relay *)arg;
-    relay_turn_off(relay); // Turn off the relay
+// Helper function to apply the relay state based on its type (NO or NC)
+static void relay_apply(Relay *relay, bool on)
+{
+    int level;
+
+    if (relay->type == RELAY_NO) {
+        level = on ? 1 : 0;
+    } else {
+        level = on ? 0 : 1;
+    }
+
+    gpio_set_level(relay->pin, level);
+    relay->is_on = on;
 }
 
+/* Timer callback */
+static void relay_timer_callback(void *arg)
+{
+    Relay *relay = (Relay *)arg;
+
+    if (relay->pending_action) {
+        relay->pending_action(relay);
+    }
+}
+
+
+/* Actions */
+static void action_turn_on(Relay *relay)
+{
+    relay_apply(relay, true);
+}
+
+static void action_turn_off(Relay *relay)
+{
+    relay_apply(relay, false);
+}
+
+
+
+
 /**
- * @brief Initializes the relay with a specified GPIO pin, type, and initial state.
+* @brief Initializes the relay with a specific GPIO pin, type, and initial state.
  * 
- * This function configures the relay by setting its pin as an output, configuring 
- * the initial state, and creating a timer for time-based control.
+ * This function configures the relay by setting its pin as an output, establishing
+ * the initial state, and creating a timer for delayed operations.
  * 
  * @param relay Pointer to the relay structure.
  * @param pin GPIO pin number connected to the relay.
- * @param type Relay type (Normally Open or Normally Closed).
- * @param initial_state Initial state of the relay (1 for on, 0 for off).
+ * @param type Type of relay (RELAY_NO or RELAY_NC).
+ * @param initial_on Initial state of the relay (true for on, false for off).
  * @return esp_err_t ESP_OK if initialized successfully, ESP_ERR_INVALID_ARG if the pin is invalid.
  */
-esp_err_t relay_init(Relay *relay, int pin, RelayType type, int initial_state) {
+esp_err_t relay_init(Relay *relay, int pin, RelayType type, bool initial_on)
+{
     if (!GPIO_IS_VALID_OUTPUT_GPIO(pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", pin);
+        ESP_LOGE(TAG, "Invalid GPIO: %d", pin);
         return ESP_ERR_INVALID_ARG;
     }
+
     relay->pin = pin;
     relay->type = type;
-    relay->state = (type == RELAY_NO) ? initial_state : !initial_state;
+    relay->pending_action = NULL;
 
-    gpio_set_direction(relay->pin, GPIO_MODE_OUTPUT);
-    gpio_set_level(relay->pin, relay->state);
-
-    // Set up the timer for time-based control
-    esp_timer_create_args_t timer_args = {
-        .callback = &relay_auto_turn_off_callback,
-        .arg = relay,
-        .name = "relay_auto_off_timer"
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << pin),
+        .mode = GPIO_MODE_OUTPUT,
     };
-    esp_timer_create(&timer_args, &relay->timer);
+
+    gpio_config(&io_conf);
+
+    relay_apply(relay, initial_on);
+
+    esp_timer_create_args_t timer_args = {
+        .callback = relay_timer_callback,
+        .arg = relay,
+        .name = "relay_timer"
+    };
+
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &relay->timer));
 
     return ESP_OK;
 }
 
-/**
- * @brief Turns the relay on.
+/*
+* @brief Turns the relay on.
  * 
- * Sets the relay to the "on" state. This function first checks if the configured
- * GPIO pin is valid.
+ * Sets the relay to the "on" state based on its configuration (NO or NC).
+ * The function validates the GPIO pin before proceeding.
+ * 
+ * @param relay Pointer to the relay structure.
+ * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin is invalid.   
+*/
+esp_err_t relay_turn_on(Relay *relay)
+{
+    relay_apply(relay, true);
+    return ESP_OK;
+}
+
+/*
+* @brief Turns the relay off.
+ * 
+ * Sets the relay to the "off" state based on its configuration (NO or NC).
+ * The function validates the GPIO pin before proceeding.
  * 
  * @param relay Pointer to the relay structure.
  * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin is invalid.
  */
-esp_err_t relay_turn_on(Relay *relay) {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(relay->pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", relay->pin);
-        return ESP_ERR_INVALID_ARG;
-    }
-    relay->state = (relay->type == RELAY_NO) ? 1 : 0;
-    gpio_set_level(relay->pin, relay->state);
+esp_err_t relay_turn_off(Relay *relay)
+{
+    relay_apply(relay, false);
     return ESP_OK;
 }
 
-/**
- * @brief Turns the relay off.
+/*
+* @brief Toggles the current state of the relay.
  * 
- * Sets the relay to the "off" state. This function first checks if the configured
- * GPIO pin is valid.
+ * This function changes the state of the relay from on to off, or from off to on,
+ * depending on its current state. The function validates the GPIO pin before proceeding.
  * 
  * @param relay Pointer to the relay structure.
  * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin is invalid.
- */
-esp_err_t relay_turn_off(Relay *relay) {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(relay->pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", relay->pin);
-        return ESP_ERR_INVALID_ARG;
-    }
-    relay->state = (relay->type == RELAY_NO) ? 0 : 1;
-    gpio_set_level(relay->pin, relay->state);
+*/
+esp_err_t relay_toggle(Relay *relay)
+{
+    relay_apply(relay, !relay->is_on);
     return ESP_OK;
 }
 
-/**
- * @brief Gets the current state of the relay.
+/*
+* @brief Gets the current state of the relay.
  * 
- * This function returns the current state of the relay, where `1` indicates on 
- * and `0` indicates off.
+ * This function returns the current state of the relay, where `true` indicates it is on,
+ * and `false` indicates it is off.
  * 
  * @param relay Pointer to the relay structure.
- * @return int Current state of the relay (1 for on, 0 for off).
- */
-int relay_get_status(Relay *relay) {
-    return relay->state;
+ * @return bool Current state of the relay (true for on, false for off).
+*/
+bool relay_get_status(Relay *relay)
+{
+    return relay->is_on;
 }
 
-/**
- * @brief Schedules the relay to turn on after a specified delay.
+
+/*
+* @brief Helper function to start a timer for delayed relay actions.
  * 
- * This function turns on the relay after a delay in milliseconds. The delay must be positive.
+ * This function sets up a timer to execute a specified action (turn on or turn off)
+ * after a given delay in milliseconds. It validates the delay and manages the timer state.
  * 
  * @param relay Pointer to the relay structure.
- * @param delay_ms Delay in milliseconds after which the relay will turn on.
- * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin or delay is invalid.
- */
-esp_err_t relay_turn_on_after(Relay *relay, int delay_ms) {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(relay->pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", relay->pin);
-        return ESP_ERR_INVALID_ARG;
-    }
+ * @param delay_ms Delay in milliseconds before the action is executed.
+ * @param action Function pointer to the action to be performed when the timer expires.
+ * @return esp_err_t ESP_OK if the timer was started successfully, ESP_ERR_INVALID_ARG if the delay is invalid.
+*/
+static esp_err_t relay_start_timer(Relay *relay, int delay_ms, relay_action_t action)
+{
     if (delay_ms <= 0) {
-        ESP_LOGE(TAG, "Invalid delay: %d ms. Delay must be positive.", delay_ms);
+        ESP_LOGE(TAG, "Invalid delay: %d", delay_ms);
         return ESP_ERR_INVALID_ARG;
     }
-    esp_timer_stop(relay->timer);
-    relay->state = 0;
-    esp_timer_start_once(relay->timer, delay_ms * 1000);
-    return ESP_OK;
+
+    esp_timer_stop(relay->timer); // safe mesmo se não estiver rodando
+
+    relay->pending_action = action;
+
+    return esp_timer_start_once(relay->timer, delay_ms * 1000);
 }
 
-/**
- * @brief Schedules the relay to turn off after a specified delay.
+/*
+* @brief Turns the relay on after a specified delay.
  * 
- * This function turns off the relay after a delay in milliseconds. The delay must be positive.
+ * This function schedules the relay to turn on after a given delay in milliseconds.
+ * It validates the delay and manages the timer state.
  * 
  * @param relay Pointer to the relay structure.
- * @param delay_ms Delay in milliseconds after which the relay will turn off.
- * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin or delay is invalid.
+ * @param delay_ms Delay in milliseconds before the relay turns on.
+ * @return esp_err_t ESP_OK if the timer was started successfully, ESP_ERR_INVALID_ARG if the delay is invalid.
  */
-esp_err_t relay_turn_off_after(Relay *relay, int delay_ms) {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(relay->pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", relay->pin);
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (delay_ms <= 0) {
-        ESP_LOGE(TAG, "Invalid delay: %d ms. Delay must be positive.", delay_ms);
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_timer_stop(relay->timer);
-    relay->state = 1;
-    esp_timer_start_once(relay->timer, delay_ms * 1000);
-    return ESP_OK;
+esp_err_t relay_turn_on_after(Relay *relay, int delay_ms)
+{
+    return relay_start_timer(relay, delay_ms, action_turn_on);
 }
 
-/**
- * @brief Turns the relay on for a specified duration, then turns it off automatically.
+/*
+* @brief Turns the relay off after a specified delay.
  * 
- * The relay is activated immediately and will be turned off after the specified duration in milliseconds.
- * The duration must be positive.
+ * This function schedules the relay to turn off after a given delay in milliseconds.
+ * It validates the delay and manages the timer state.
  * 
  * @param relay Pointer to the relay structure.
- * @param duration_ms Duration in milliseconds for which the relay will stay on.
- * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin or duration is invalid.
+ * @param delay_ms Delay in milliseconds before the relay turns off.
+ * @return esp_err_t ESP_OK if the timer was started successfully, ESP_ERR_INVALID_ARG if the delay is invalid.
  */
-esp_err_t relay_pulse(Relay *relay, int duration_ms) {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(relay->pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", relay->pin);
-        return ESP_ERR_INVALID_ARG;
-    }
+esp_err_t relay_turn_off_after(Relay *relay, int delay_ms)
+{
+    return relay_start_timer(relay, delay_ms, action_turn_off);
+}
+
+/*
+* @brief Triggers a pulse on the relay for a specified duration.
+ * 
+ * This function turns the relay on and then off after a given duration in milliseconds.
+ * It validates the duration and manages the timer state.
+ * 
+ * @param relay Pointer to the relay structure.
+ * @param duration_ms Duration in milliseconds for which the relay remains on.
+ * @return esp_err_t ESP_OK if the pulse was triggered successfully, ESP_ERR_INVALID_ARG if the duration is invalid.
+ */
+esp_err_t relay_pulse(Relay *relay, int duration_ms)
+{
     if (duration_ms <= 0) {
-        ESP_LOGE(TAG, "Invalid duration: %d ms. Duration must be positive.", duration_ms);
+        ESP_LOGE(TAG, "Invalid duration: %d", duration_ms);
         return ESP_ERR_INVALID_ARG;
     }
-    relay_turn_on(relay);
-    esp_timer_stop(relay->timer);
-    esp_timer_start_once(relay->timer, duration_ms * 1000);
-    return ESP_OK;
+
+    relay_apply(relay, true);
+
+    return relay_start_timer(relay, duration_ms, action_turn_off);
 }
 
-/**
- * @brief Turns the relay on immediately and schedules it to turn off after a specified duration.
+/*
+* @brief Turns the relay on and then off after a specified duration.
  * 
- * This function turns on the relay immediately, then automatically turns it off after
- * the specified duration in milliseconds. The duration must be positive.
+ * This function schedules the relay to turn on and then off after a given duration in milliseconds.
+ * It validates the duration and manages the timer state.
  * 
  * @param relay Pointer to the relay structure.
- * @param duration_ms Duration in milliseconds after which the relay will turn off.
- * @return esp_err_t ESP_OK if successful, ESP_ERR_INVALID_ARG if the pin or duration is invalid.
+ * @param duration_ms Duration in milliseconds for which the relay remains on.
+ * @return esp_err_t ESP_OK if the action was scheduled successfully, ESP_ERR_INVALID_ARG if the duration is invalid.
  */
-esp_err_t relay_turn_on_and_turn_off_after(Relay *relay, int duration_ms) {
-    if (!GPIO_IS_VALID_OUTPUT_GPIO(relay->pin)) {
-        ESP_LOGE(TAG, "Invalid GPIO pin: %d", relay->pin);
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (duration_ms <= 0) {
-        ESP_LOGE(TAG, "Invalid duration: %d ms. Duration must be positive.", duration_ms);
-        return ESP_ERR_INVALID_ARG;
-    }
-    relay_turn_on(relay);
-    esp_timer_stop(relay->timer);
-    esp_timer_start_once(relay->timer, duration_ms * 1000);
-    return ESP_OK;
+esp_err_t relay_turn_on_and_turn_off_after(Relay *relay, int duration_ms)
+{
+    return relay_pulse(relay, duration_ms);
 }

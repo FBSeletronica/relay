@@ -16,8 +16,15 @@
 #ifndef RELAY_H
 #define RELAY_H
 
+#include <stdbool.h>
 #include "esp_timer.h"
 #include "esp_err.h"
+
+// Forward declaration of the Relay structure
+typedef struct Relay Relay;
+
+// Function pointer type for relay actions
+typedef void (*relay_action_t)(Relay *relay);
 
 /** 
  * @brief Enumeration for relay types.
@@ -27,9 +34,12 @@
  * the circuit is closed when the relay is inactive.
  */
 typedef enum {
-    RELAY_NO, /**< Normally Open */
-    RELAY_NC  /**< Normally Closed */
+    RELAY_NO,
+    RELAY_NC
 } RelayType;
+
+
+
 
 /**
  * @brief Structure to store relay configuration and state.
@@ -37,12 +47,13 @@ typedef enum {
  * This structure holds essential information about the relay, including the GPIO pin,
  * relay type (NO or NC), current state (on or off), and a timer handle for time-based operations.
  */
-typedef struct {
-    int pin;                     /**< GPIO pin connected to the relay */
-    int state;                   /**< Current relay state (1 for on, 0 for off) */
-    RelayType type;              /**< Relay type: Normally Open (NO) or Normally Closed (NC) */
-    esp_timer_handle_t timer;    /**< Timer handle for time-based control */
-} Relay;
+struct Relay {
+    int pin;
+    bool is_on;
+    RelayType type;
+    esp_timer_handle_t timer;
+    relay_action_t pending_action;
+};
 
 /**
  * @brief Initializes the relay with a specific GPIO pin, type, and initial state.
@@ -58,7 +69,7 @@ typedef struct {
  *   - ESP_OK if initialization is successful.
  *   - ESP_ERR_INVALID_ARG if the pin is invalid.
  */
-esp_err_t relay_init(Relay *relay, int pin, RelayType type, int initial_state);
+esp_err_t relay_init(Relay *relay, int pin, RelayType type, bool initial_on);
 
 /**
  * @brief Turns the relay on.
@@ -86,6 +97,19 @@ esp_err_t relay_turn_on(Relay *relay);
  */
 esp_err_t relay_turn_off(Relay *relay);
 
+/*
+*  @brief Toggles the current state of the relay.
+ * 
+ * This function changes the state of the relay from on to off, or from off to on,
+ * depending on its current state. The function validates the GPIO pin before proceeding.
+ * 
+ * @param relay Pointer to the relay structure.
+ * @return esp_err_t 
+ *   - ESP_OK if successful.
+ *   - ESP_ERR_INVALID_ARG if the pin is invalid.
+*/
+esp_err_t relay_toggle(Relay *relay);
+
 /**
  * @brief Gets the current state of the relay.
  * 
@@ -95,7 +119,7 @@ esp_err_t relay_turn_off(Relay *relay);
  * @param relay Pointer to the relay structure.
  * @return int Current state of the relay (1 for on, 0 for off).
  */
-int relay_get_status(Relay *relay);
+bool relay_get_status(Relay *relay);
 
 /**
  * @brief Schedules the relay to turn on after a specified delay.

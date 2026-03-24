@@ -4,37 +4,41 @@
 #include "relay.h"
 #include "esp_log.h"
 
-#define RELAY_PIN 2 // GPIO pin connected to the relay
+#define RELAY_PIN 21
 
 static const char *TAG = "RelayExample";
 
-void app_main(void) {
+void app_main(void)
+{
     ESP_LOGI(TAG, "Initializing relay example...");
 
-    // Declare and initialize the relay
-    Relay my_relay;
-    relay_init(&my_relay, RELAY_PIN, RELAY_NO, 0); // Normally Open (NO) relay, initially off
-    
-    // Example 1: Turn relay on immediately
+    static Relay my_relay;
+
+    ESP_ERROR_CHECK(relay_init(&my_relay, RELAY_PIN, RELAY_NO, false));
+
+    // Example 1
     ESP_LOGI(TAG, "Turning relay on immediately...");
-    relay_turn_on(&my_relay);
-    vTaskDelay(pdMS_TO_TICKS(2000)); // Wait 2 seconds
+    ESP_ERROR_CHECK(relay_turn_on(&my_relay));
+    ESP_LOGI(TAG, "State: %d", relay_get_status(&my_relay));
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
-    // Example 2: Turn relay off after 3 seconds
+    // Example 2
     ESP_LOGI(TAG, "Scheduling relay to turn off after 3 seconds...");
-    relay_turn_off_after(&my_relay, 3000); // Turns off after 3 seconds
-    vTaskDelay(pdMS_TO_TICKS(4000)); // Wait 4 seconds to observe
+    ESP_ERROR_CHECK(relay_turn_off_after(&my_relay, 3000));
+    vTaskDelay(pdMS_TO_TICKS(4000));
+    ESP_LOGI(TAG, "State: %d", relay_get_status(&my_relay));
 
-    // Example 3: Pulse relay for 5 seconds
+    // Example 3
     ESP_LOGI(TAG, "Pulsing relay for 5 seconds...");
-    relay_pulse(&my_relay, 5000); // Turn on and off after 5 seconds
-    vTaskDelay(pdMS_TO_TICKS(6000)); // Wait 6 seconds to observe
+    ESP_ERROR_CHECK(relay_pulse(&my_relay, 5000));
+    vTaskDelay(pdMS_TO_TICKS(6000));
+    ESP_LOGI(TAG, "State: %d", relay_get_status(&my_relay));
 
-    // Example 4: Turn relay on and automatically turn off after 7 seconds
-    ESP_LOGI(TAG, "Turning relay on and scheduling it to turn off after 7 seconds...");
-    relay_turn_on_and_turn_off_after(&my_relay, 7000); // Turn on and auto off after 7 seconds
-    vTaskDelay(pdMS_TO_TICKS(8000)); // Wait 8 seconds to observe
+    // Example 4
+    ESP_LOGI(TAG, "Turning relay on and scheduling off after 7 seconds...");
+    ESP_ERROR_CHECK(relay_turn_on_and_turn_off_after(&my_relay, 7000));
+    vTaskDelay(pdMS_TO_TICKS(8000));
+    ESP_LOGI(TAG, "State: %d", relay_get_status(&my_relay));
 
-    // Finalize example
     ESP_LOGI(TAG, "Relay example complete.");
 }
